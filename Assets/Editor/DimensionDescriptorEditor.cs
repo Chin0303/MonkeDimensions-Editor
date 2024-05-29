@@ -1,16 +1,15 @@
 using UnityEditor;
 using UnityEngine;
 using Newtonsoft.Json;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.IO.Compression;
-using System;
+using Monke_Dimensions.Models;
+using Monke_Dimensions.Behaviours.Addons;
 
 [CustomEditor(typeof(DimensionDescriptor))]
 public class DimensionDescriptorEditor : Editor
 {
-    SerializedProperty dimensionName, dimensionAuthor, dimensionDescription, playerSpawnPosition, terminalSpawnPosition, slipperyObjects, extraTerminals;
+    SerializedProperty dimensionName, dimensionAuthor, dimensionDescription, playerSpawnPosition, terminalSpawnPosition, dimensionImage;
 
     void OnEnable()
     {
@@ -20,8 +19,7 @@ public class DimensionDescriptorEditor : Editor
         dimensionDescription = serializedObject.FindProperty("Description");
         playerSpawnPosition = serializedObject.FindProperty("SpawnPosition");
         terminalSpawnPosition = serializedObject.FindProperty("TerminalPosition");
-        slipperyObjects = serializedObject.FindProperty("Addons.SlipperyObjects");
-        extraTerminals = serializedObject.FindProperty("Addons.ExtraTerminals");
+        dimensionImage = serializedObject.FindProperty("Photo");
         #endregion
     }
 
@@ -35,9 +33,7 @@ public class DimensionDescriptorEditor : Editor
         EditorGUILayout.PropertyField(dimensionDescription);
         EditorGUILayout.PropertyField(playerSpawnPosition);
         EditorGUILayout.PropertyField(terminalSpawnPosition);
-
-        EditorGUILayout.PropertyField(slipperyObjects);
-        EditorGUILayout.PropertyField(extraTerminals);
+        EditorGUILayout.PropertyField(dimensionImage);
 
         if (GUILayout.Button("Export Dimension"))
             ExportDimension();
@@ -57,11 +53,11 @@ public class DimensionDescriptorEditor : Editor
         DestroyImmediate(meshRendererTerminal);
         DestroyImmediate(meshRendererMonke);
 
-        foreach (GameObject gameObject in descriptor.Addons.ExtraTerminals)
+        foreach (TeleportPlayer i in GameObject.FindObjectsOfType<TeleportPlayer>())
         {
-            if (gameObject.GetComponent<MeshRenderer>() != null)
+            if (i.TeleportDestination.GetComponent<MeshRenderer>() != null)
             {
-                MeshRenderer meshRenderer = gameObject.GetComponent<MeshRenderer>();
+                MeshRenderer meshRenderer = i.TeleportDestination.GetComponent<MeshRenderer>();
                 DestroyImmediate(meshRenderer);
             }
         }
@@ -84,58 +80,35 @@ public class DimensionDescriptorEditor : Editor
         #endregion
 
         #region JSON Stuff
-        var triggerEventsData = new List<object>();
-        foreach (TriggerEvents.Events eventType in Enum.GetValues(typeof(TriggerEvents.Events)))
-        {
-            string eventTypeString = eventType.ToString();
-            List<object> triggerEventObjects = new List<object>();
-
-            foreach (TriggerEvents triggerEvents in selectedObject.GetComponentsInChildren<TriggerEvents>())
-            {
-                if (triggerEvents.selectedEvent == eventType && triggerEvents.associatedComponent != null && triggerEvents.associatedComponent.gameObjectField != null)
-                {
-                    GameObject triggerObject = triggerEvents.gameObject;
-                    GameObject associatedObject = triggerEvents.associatedComponent.gameObjectField;
-                    string triggerObjectName = triggerObject.name;
-                    string triggerEventObjectName = associatedObject.name;
-
-                    if (eventType == TriggerEvents.Events.TeleportPlayer)
-                    {
-                        var goMesh = GameObject.Find(triggerEventObjectName).GetComponent<MeshRenderer>();
-                        if (goMesh != null) DestroyImmediate(goMesh);
-                    }
-                    triggerEventObjects.Add(new
-                    {
-                        TriggerObjectName = triggerObjectName,
-                        TriggerEventObjectName = triggerEventObjectName
-                    });
-                }
-            }
-
-            triggerEventsData.Add(new
-            {
-                EventType = eventTypeString,
-                TriggerEvent = triggerEventObjects
-            });
-        }
 
         var dimensionDescriptor = new
         {
-            Name = descriptor.Name,
-            Author = descriptor.Author,
-            Description = descriptor.Description,
-            SpawnPoint = descriptor.SpawnPosition.name,
-            TerminalPoint = descriptor.TerminalPosition.name,
-            Addons = new
-            {
-                SlipperyObjects = descriptor.Addons.SlipperyObjects.Select(go => go.name).ToList(),
-                ExtraTerminals = descriptor.Addons.ExtraTerminals.Select(go => go.name).ToList(),
-                TriggerEvents = triggerEventsData
-            }
+            descriptor.Name,
+            descriptor.Author,
+            descriptor.Description,
         };
 
         string jsonContent = JsonConvert.SerializeObject(dimensionDescriptor, Formatting.Indented);
         File.WriteAllText(Path.Combine(tempPrefabDirectory, "Package.json"), jsonContent);
+        #endregion
+
+        #region Texture2D Export
+        // shout out to my friend Chad(gpt)
+        Texture2D texture = descriptor.Photo;
+
+        string texturePath = AssetDatabase.GetAssetPath(texture);
+        TextureImporter textureImporter = (TextureImporter)AssetImporter.GetAtPath(texturePath);
+        textureImporter.isReadable = true;
+        textureImporter.textureCompression = TextureImporterCompression.Uncompressed;
+        AssetDatabase.ImportAsset(texturePath);
+
+        Texture2D decompressedTexture = new Texture2D(texture.width, texture.height, texture.format, texture.mipmapCount > 1);
+
+        Graphics.CopyTexture(texture, decompressedTexture);
+
+        byte[] textureBytes = decompressedTexture.EncodeToPNG();
+        string textureFileName = Path.Combine(tempPrefabDirectory, $"{UnityEngine.Random.Range(10000000, 99999999)}.png");
+        File.WriteAllBytes(textureFileName, textureBytes);
         #endregion
 
         #region Create Dimension
@@ -151,15 +124,11 @@ public class DimensionDescriptorEditor : Editor
         {
             zipArchive.CreateEntryFromFile(Path.Combine(tempPrefabDirectory, assetBundleName), assetBundleName);
             zipArchive.CreateEntryFromFile(Path.Combine(tempPrefabDirectory, "Package.json"), "Package.json");
+            zipArchive.CreateEntryFromFile(textureFileName, Path.GetFileName(textureFileName));
         }
 
         Directory.Delete(tempPrefabDirectory, true);
         AssetDatabase.Refresh();
         #endregion
-    }
-
-    public List<string> formatList(List<GameObject> list)
-    {
-        return list.Select(go => go.name).ToList();
     }
 }
