@@ -70,9 +70,9 @@ public class DimensionDescriptorEditor : Editor
             Directory.CreateDirectory(tempPrefabDirectory);
         }
 
-        string tempPrefabPathInAssets = $"Assets/{descriptor.gameObject.name}.prefab";
+        string tempPrefabPathInAssets = $"Assets/{descriptor.Name}.prefab";
         GameObject tempPrefab = PrefabUtility.SaveAsPrefabAsset(selectedObject, tempPrefabPathInAssets);
-        string assetBundleName = descriptor.gameObject.name.ToLower();
+        string assetBundleName = descriptor.Name.ToLower();
         AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(tempPrefab)).SetAssetBundleNameAndVariant(assetBundleName, "");
         BuildPipeline.BuildAssetBundles(tempPrefabDirectory, BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows);
 
